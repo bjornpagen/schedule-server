@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -50,16 +52,35 @@ func main() {
 		log.Fatalf("failed to get open tasks: %v", err)
 	}
 
-	r := tasks.Results[3]
+	// parse all the tasks
+	var ts []Task
+	for _, t := range tasks.Results {
+		// parse the task
+		task, err := parseTask(ctx, &t)
+		if err != nil {
+			log.Fatalf("failed to parse task: %v", err)
+		}
 
-	// now parse the result into a task struct
-	t, err := parseTask(ctx, &r)
-	if err != nil {
-		log.Fatalf("failed to parse task: %v", err)
+		// add the task to the list
+		ts = append(ts, task)
 	}
 
-	// print the task to see what it looks like
-	fmt.Printf("%+v\n", t)
+	// find the task that contains the substring "verizon" in the name
+	var t Task
+	for _, task := range ts {
+		// using "strings.Contains" here to test
+		if strings.Contains(task.Name, "brooklyn") {
+			t = task
+			break
+		}
+	}
+
+	// marshal the task to JSON and print it
+	b, err := json.Marshal(t)
+	if err != nil {
+		log.Fatalf("failed to marshal task: %v", err)
+	}
+	fmt.Printf("%s", b)
 }
 
 func loadEnv() error {
@@ -199,18 +220,18 @@ func getTasks(ctx context.Context, db string, qr *notion.DatabaseQueryRequest) (
 	return res, nil
 }
 
-type task struct {
-	ID       string    // notion page id
-	Name     string    // notion page title
-	Notes    string    // notion page content
-	Parent   string    // notion parent page id
-	Children []string  // notion child page ids
-	Exited   bool      // if we finished or abandoned the task
-	Created  time.Time // only because we get these for free from notion
-	Updated  time.Time // only because we get these for free from notion
+type Task struct {
+	ID       string    `json:"id"`       // notion page id
+	Name     string    `json:"name"`     // notion page title
+	Notes    string    `json:"notes"`    // commonmark of the page
+	Parent   string    `json:"parent"`   // notion parent page id
+	Subitems []string  `json:"subitems"` // notion subitem page ids
+	Exited   bool      `json:"exited"`   // notion exited checkbox
+	Created  time.Time `json:"created"`  // notion created time
+	Updated  time.Time `json:"updated"`  // notion updated time
 }
 
-func parseTask(ctx context.Context, p *notion.Page) (t task, err error) {
+func parseTask(ctx context.Context, p *notion.Page) (t Task, err error) {
 	t.ID = string(p.ID)
 	t.Created = p.CreatedTime
 	t.Updated = p.LastEditedTime
@@ -239,13 +260,13 @@ func parseTask(ctx context.Context, p *notion.Page) (t task, err error) {
 				continue
 			}
 			t.Parent = string(v.Relation[0].ID)
-		case "children":
+		case "subitems":
 			v, ok := p.(*notion.RelationProperty)
 			if !ok {
 				return t, fmt.Errorf("children property is not a relation")
 			}
 			for _, c := range v.Relation {
-				t.Children = append(t.Children, string(c.ID))
+				t.Subitems = append(t.Subitems, string(c.ID))
 			}
 		case "exited":
 			v, ok := p.(*notion.CheckboxProperty)
