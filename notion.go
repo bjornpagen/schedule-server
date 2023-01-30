@@ -9,12 +9,6 @@ import (
 	notion "github.com/jomei/notionapi"
 )
 
-var _nc *notion.Client
-
-func setNotionClient(tok string) {
-	_nc = notion.NewClient(notion.Token(tok))
-}
-
 type taskSystemDBs struct {
 	Root    string
 	Issues  string
@@ -22,11 +16,11 @@ type taskSystemDBs struct {
 	Tasks   string
 }
 
-func getDBs(ctx context.Context) (dbs taskSystemDBs, err error) {
+func getDBs(ctx context.Context, nc notion.Client) (dbs taskSystemDBs, err error) {
 	dbs.Root = os.Getenv("NOTION_ROOT_PAGE")
 
 	blkid := notion.BlockID(dbs.Root)
-	s, err := _nc.Block.GetChildren(ctx, blkid, nil)
+	s, err := nc.Block.GetChildren(ctx, blkid, nil)
 	if err != nil {
 		return dbs, err
 	}
@@ -42,14 +36,14 @@ func getDBs(ctx context.Context) (dbs taskSystemDBs, err error) {
 		return dbs, fmt.Errorf("toggle not found")
 	}
 
-	toggleChildren, err := _nc.Block.GetChildren(ctx, toggle.GetID(), nil)
+	toggleChildren, err := nc.Block.GetChildren(ctx, toggle.GetID(), nil)
 	if err != nil {
 		return dbs, err
 	}
 
 	for _, c := range toggleChildren.Results {
 		if c.GetType() == notion.BlockTypeChildDatabase {
-			db, err := _nc.Database.Get(ctx, notion.DatabaseID(c.GetID()))
+			db, err := nc.Database.Get(ctx, notion.DatabaseID(c.GetID()))
 			if err != nil {
 				return dbs, err
 			}
@@ -77,7 +71,7 @@ func getDBs(ctx context.Context) (dbs taskSystemDBs, err error) {
 	return dbs, nil
 }
 
-func getOpenTasks(ctx context.Context, db string) (*notion.DatabaseQueryResponse, error) {
+func getOpenTasks(ctx context.Context, nc notion.Client, db string) (*notion.DatabaseQueryResponse, error) {
 	// here's the raw json for the filter:
 	// {
 	// 	"and": [
@@ -126,17 +120,17 @@ func getOpenTasks(ctx context.Context, db string) (*notion.DatabaseQueryResponse
 		},
 	}
 
-	return getTasks(ctx, db, qr)
+	return getTasks(ctx, nc, db, qr)
 }
 
-func getAllTasks(ctx context.Context, db string) (*notion.DatabaseQueryResponse, error) {
+func getAllTasks(ctx context.Context, nc notion.Client, db string) (*notion.DatabaseQueryResponse, error) {
 	qr := &notion.DatabaseQueryRequest{}
 
-	return getTasks(ctx, db, qr)
+	return getTasks(ctx, nc, db, qr)
 }
 
-func getTasks(ctx context.Context, db string, qr *notion.DatabaseQueryRequest) (*notion.DatabaseQueryResponse, error) {
-	res, err := _nc.Database.Query(context.Background(), notion.DatabaseID(db), qr)
+func getTasks(ctx context.Context, nc notion.Client, db string, qr *notion.DatabaseQueryRequest) (*notion.DatabaseQueryResponse, error) {
+	res, err := nc.Database.Query(context.Background(), notion.DatabaseID(db), qr)
 	if err != nil {
 		fmt.Println("Error: ", err)
 	}
@@ -144,13 +138,13 @@ func getTasks(ctx context.Context, db string, qr *notion.DatabaseQueryRequest) (
 	return res, nil
 }
 
-func parseTask(ctx context.Context, p *notion.Page) (t Task, err error) {
+func parseTask(ctx context.Context, nc notion.Client, p *notion.Page) (t Task, err error) {
 	t.ID = string(p.ID)
 	t.Created = p.CreatedTime
 	t.Updated = p.LastEditedTime
 
 	// get the plaintext of the page
-	t.Notes, err = getPagePlaintext(ctx, t.ID)
+	t.Notes, err = getPagePlaintext(ctx, nc, t.ID)
 	if err != nil {
 		return t, err
 	}
@@ -200,9 +194,9 @@ func richToPlainText(r []notion.RichText) (s string) {
 	return s
 }
 
-func getPagePlaintext(ctx context.Context, id string) (string, error) {
+func getPagePlaintext(ctx context.Context, nc notion.Client, id string) (string, error) {
 	blkid := notion.BlockID(id)
-	s, err := _nc.Block.GetChildren(ctx, blkid, nil)
+	s, err := nc.Block.GetChildren(ctx, blkid, nil)
 	if err != nil {
 		return "", err
 	}

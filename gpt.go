@@ -6,19 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 
 	gpt "github.com/PullRequestInc/go-gpt3"
 )
 
-var _gptc gpt.Client
-
-func setGptClient(apiKey string) {
-	_gptc = gpt.NewClient(os.Getenv("OPENAI_API_KEY"), gpt.WithDefaultEngine(gpt.TextDavinci003Engine))
-}
-
-func promptGpt3(ctx context.Context, input string) (string, error) {
-	r, err := _gptc.Completion(ctx, gpt.CompletionRequest{
+func promptGpt3(ctx context.Context, c gpt.Client, input string) (string, error) {
+	r, err := c.Completion(ctx, gpt.CompletionRequest{
 		Prompt:      []string{input},
 		Stop:        []string{"\n"},
 		N:           gpt.IntPtr(1),
@@ -63,7 +56,7 @@ var gptPrioritizeFmt string
 //go:embed prompts/prioritize/outstub
 var gptPrioritizeOutstub string
 
-func gptPrioritize(ctx context.Context, in gptPrioritizeInput) (out gptPromptOutput, err error) {
+func gptPrioritize(ctx context.Context, c gpt.Client, in gptPrioritizeInput) (out gptPromptOutput, err error) {
 	// marshal input into json string
 	b, err := json.Marshal(in)
 	if err != nil {
@@ -74,7 +67,7 @@ func gptPrioritize(ctx context.Context, in gptPrioritizeInput) (out gptPromptOut
 	prompt := fmt.Sprintf(gptPrioritizeFmt, string(b), gptPrioritizeOutstub)
 
 	// prompt GPT-3
-	r, err := promptGpt3(ctx, prompt)
+	r, err := promptGpt3(ctx, c, prompt)
 	if err != nil {
 		return gptPromptOutput{}, fmt.Errorf("failed to prompt GPT-3: %w", err)
 	}
