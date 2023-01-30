@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"time"
 
@@ -24,6 +24,7 @@ func main() {
 	}
 
 	setNotionClient(os.Getenv("NOTION_TOKEN"))
+	setGptClient(os.Getenv("OPENAI_API_KEY"))
 
 	dbs, err := getDBs(ctx)
 	if err != nil {
@@ -54,22 +55,70 @@ func main() {
 		ts = append(ts, task)
 	}
 
+	// map a random unique 4 charecter pseudorandom string to each task
+	// this is used to identify the task in the GPT-3 output
+	m := make(map[string]Task)
+	for _, t := range ts {
+		// generate a random string
+		randStr := randomString(4)
+
+		// check if the string is already in the map
+		// if it is, generate a new string
+		for {
+			if _, ok := m[randStr]; ok {
+				randStr = randomString(4)
+			} else {
+				break
+			}
+		}
+
+		// add the task to the map
+		m[randStr] = t
+	}
+
 	// cast all into a `gptPromptInputTask` struct
 	var pts []gptPrioritizeInputTask
-	for _, t := range ts {
+	for k, v := range m {
 		pts = append(pts, gptPrioritizeInputTask{
-			ID:    t.ID,
-			Name:  t.Name,
-			Notes: t.Notes,
+			ID:    k,
+			Name:  v.Name,
+			Notes: v.Notes,
 		})
 	}
 
-	// print the tasks
-	b, err := json.Marshal(pts)
+	// prioritize tasks with GPT-3
+	out, err := gptPrioritize(ctx, gptPrioritizeInput{
+		DailyFocus: "",
+		Tasks:      pts,
+	})
 	if err != nil {
-		log.Fatalf("failed to marshal tasks: %v", err)
+		log.Fatalf("failed to prioritize tasks: %v", err)
 	}
-	fmt.Println(string(b))
+
+	// create a new task with duration list from the GPT-3 output
+	var tds []TaskWithDuration
+	for _, t := range out.Tasks {
+		tds = append(tds, TaskWithDuration{
+			Task:     m[t.ID],
+			Duration: time.Duration(t.Minutes) * time.Minute,
+		})
+	}
+
+	// drop all parent tasks from the list
+	// this is because we only want to focus on the subtasks
+	var tds2 []TaskWithDuration
+	for _, t := range tds {
+		if t.Subitems == nil {
+			tds2 = append(tds2, t)
+		}
+	}
+	tds = tds2
+
+	// now, we're going to schedule these tasks in google calendar
+	// we're going to schedule them in the order they were returned from GPT-3
+	// this is because GPT-3 prioritizes the tasks in the order they should be done
+	// so, we're going to schedule them in the same order
+
 }
 
 func loadEnv() error {
@@ -86,6 +135,10 @@ func loadEnv() error {
 		return fmt.Errorf("NOTION_ROOT_PAGE is not set")
 	}
 
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		return fmt.Errorf("OPENAI_API_KEY is not set")
+	}
+
 	return nil
 }
 
@@ -99,4 +152,20 @@ type Task struct {
 	Exited   bool      `json:"exited"`   // notion exited checkbox
 	Created  time.Time `json:"created"`  // notion created time
 	Updated  time.Time `json:"updated"`  // notion updated time
+}
+
+type TaskWithDuration struct {
+	Task
+
+	Duration time.Duration `json:"duration"`
+}
+
+func randomString(n int) string {
+	var letter = []rune("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = letter[rand.Intn(len(letter))]
+	}
+	return string(b)
 }

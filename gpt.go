@@ -2,34 +2,55 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
-	"time"
+	"log"
+	"os"
+
+	gpt "github.com/PullRequestInc/go-gpt3"
 )
 
-func promptGPT3(ctx context.Context, input string) (string, error) {
-	return "", nil
+var _gptc gpt.Client
+
+func setGptClient(apiKey string) {
+	_gptc = gpt.NewClient(os.Getenv("OPENAI_API_KEY"), gpt.WithDefaultEngine(gpt.TextDavinci003Engine))
+}
+
+func promptGpt3(ctx context.Context, input string) (string, error) {
+	r, err := _gptc.Completion(ctx, gpt.CompletionRequest{
+		Prompt:      []string{input},
+		Stop:        []string{"\n"},
+		N:           gpt.IntPtr(1),
+		MaxTokens:   gpt.IntPtr(512),
+		Temperature: gpt.Float32Ptr(0),
+		Echo:        false,
+	})
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	return r.Choices[0].Text, nil
 }
 
 type gptPrioritizeInputTask struct {
-	ID    string `json:"id"`    // notion page id
+	ID    string `json:"id"`    // intermediate task id
 	Name  string `json:"name"`  // notion page title
-	Notes string `json:"notes"` // commonmark of the page
+	Notes string `json:"notes"` // notion page contents
 }
 
 type gptPrioritizeInput struct {
-	DailyFocus string                   `json:"todays_focus"`
+	DailyFocus string                   `json:"dailyFocus"`
 	Tasks      []gptPrioritizeInputTask `json:"tasks"`
 }
 
 type gptPrioritizeOutputTask struct {
-	ID            string        `json:"id"`             // notion page id
-	EstimatedTime time.Duration `json:"estimated_time"` // estimated time to complete the task
+	ID      string `json:"id"`      // intermediate task id
+	Minutes int    `json:"minutes"` // minutes to spend on task
 }
 
 type gptPromptOutput struct {
-	DailyFocus string                    `json:"todays_focus"`
-	Tasks      []gptPrioritizeOutputTask `json:"tasks"`
+	Tasks []gptPrioritizeOutputTask `json:"tasks"`
 }
 
 // gptPrioritizeFmt is the format string for the GPT-3 prompt, has two %s
@@ -53,7 +74,7 @@ func gptPrioritize(ctx context.Context, in gptPrioritizeInput) (out gptPromptOut
 	prompt := fmt.Sprintf(gptPrioritizeFmt, string(b), gptPrioritizeOutstub)
 
 	// prompt GPT-3
-	r, err := promptGPT3(ctx, prompt)
+	r, err := promptGpt3(ctx, prompt)
 	if err != nil {
 		return gptPromptOutput{}, fmt.Errorf("failed to prompt GPT-3: %w", err)
 	}
