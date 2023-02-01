@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"math/rand"
 	"time"
@@ -104,6 +105,13 @@ func (s *server) run(ctx context.Context) error {
 		}
 	}
 	tds = tds2
+
+	// unmarshal and log the result
+	data, err := json.MarshalIndent(tds, "", "  ")
+	if err != nil {
+		log.Fatalf("failed to marshal tasks: %v", err)
+	}
+	log.Printf("GPT-3 output: %s", string(data))
 
 	// now, we're going to schedule these tasks in google calendar
 	// we're going to schedule them in the order they were returned from GPT-3
